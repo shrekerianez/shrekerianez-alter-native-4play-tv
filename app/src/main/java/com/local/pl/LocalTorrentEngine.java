@@ -196,11 +196,13 @@ public final class LocalTorrentEngine {
         if(wanted<0||wanted>=count)return false;
         long deadline=System.currentTimeMillis()+timeout;
         int ahead=Math.min(8,Math.max(2,1024*1024/item.info.pieceLength()));
+        // Set deadlines once. Reapplying every 180 ms would continuously
+        // push them forward and could starve the playback position.
+        for(int i=0;i<ahead&&wanted+i<count;i++){
+            if(!item.handle.havePiece(wanted+i))item.handle.setPieceDeadline(wanted+i,800+i*200);
+        }
         while(System.currentTimeMillis()<deadline && item==current){
             if(item.handle.havePiece(wanted))return true;
-            for(int i=0;i<ahead&&wanted+i<count;i++){
-                if(!item.handle.havePiece(wanted+i))item.handle.setPieceDeadline(wanted+i,800+i*200);
-            }
             Thread.sleep(180);
         }
         return false;
