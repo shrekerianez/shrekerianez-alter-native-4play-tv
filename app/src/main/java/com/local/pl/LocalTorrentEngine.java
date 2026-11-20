@@ -92,7 +92,7 @@ public final class LocalTorrentEngine {
         Priority[] priorities=Priority.array(Priority.IGNORE,files.numFiles());
         priorities[index]=Priority.NORMAL;
         session.download(info,directory,null,priorities,null,
-            TorrentFlags.SEQUENTIAL_DOWNLOAD.or(TorrentFlags.AUTO_MANAGED));
+            TorrentFlags.SEQUENTIAL_DOWNLOAD.or_(TorrentFlags.AUTO_MANAGED));
         TorrentHandle handle=null;
         for(int tries=0;tries<120;tries++){
             handle=session.find(info);
