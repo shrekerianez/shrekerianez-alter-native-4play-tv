@@ -27,6 +27,17 @@ public final class TorrentStats {
         if(o.has("active_peers"))b.append("  Пиры: ").append(o.optInt("active_peers"));
         return b.length()==0?"Ожидаем информацию от TorrServer…":b.toString();
     }
+    public static String overlay(JSONObject o){
+        if(o==null)return "Ожидаем TorrServer…";
+        String line=shortLine(o);
+        long loaded=o.optLong("loaded_size",-1);
+        long total=o.optLong("torrent_size",-1);
+        if(loaded>=0 && total>0){
+            line+="\nЗагружено: "+size(loaded)+" / "+size(total)+" ("+
+                String.format(Locale.US,"%.1f%%",Math.min(100,100.0*loaded/total))+")";
+        }else if(loaded>=0)line+="\nЗагружено: "+size(loaded);
+        return line;
+    }
     public static String full(JSONObject o){
         if(o==null)return "TorrServer не вернул данные";
         StringBuilder b=new StringBuilder();
