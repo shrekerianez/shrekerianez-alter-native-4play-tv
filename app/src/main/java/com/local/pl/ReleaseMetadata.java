@@ -8,31 +8,44 @@ import java.util.regex.*;
 public final class ReleaseMetadata {
     public final LinkedHashMap<String,String> fields=new LinkedHashMap<>();
     public final String imageUrl;
+    public final List<String> imageUrls;
 
-    private ReleaseMetadata(String imageUrl){this.imageUrl=imageUrl;}
+    private ReleaseMetadata(List<String> urls){
+        this.imageUrls=Collections.unmodifiableList(urls);
+        this.imageUrl=urls.isEmpty()?"":urls.get(0);
+    }
 
     public static ReleaseMetadata from(Document doc){
         // The first forum post contains the release description, not replies
         // or the user upload/download ratio FAQ link.
-        Element post=doc.selectFirst(".post_body");
-        if(post==null)post=doc.selectFirst("div.post_body");
+        Element post=doc.selectFirst("td.message");
+        if(post==null)post=doc.selectFirst(".post_body");
         if(post==null)post=doc.selectFirst(".post_body_inner");
         String info=post==null?"":post.wholeText();
         if(info.length()>30000)info=info.substring(0,30000);
 
-        String image="";
+        // PornoLab frequently uses <var class="postImg" title="https://...">
+        // instead of an <img src> element for externally hosted covers.
+        LinkedHashSet<String> candidates=new LinkedHashSet<>();
         if(post!=null){
-            for(Element img:post.select("img[src]")){
-                String src=img.absUrl("src");
-                if(src.startsWith("https://") &&
-                    !src.contains("smiles") && !src.contains("emoticon") &&
-                    !src.contains("avatar") && !src.contains("logo")){
-                    image=src;
-                    break;
+            for(Element cover:post.select("var.postImg[title], var.postImg[data-src], img[src]")){
+                String address="";
+                if(cover.hasClass("postImg")){
+                    address=cover.attr("title");
+                    if(address.isEmpty())address=cover.attr("data-src");
+                }else address=cover.absUrl("src");
+                if(address.startsWith("http://")){
+                    address="https://"+address.substring(7);
                 }
+                if(address.startsWith("https://")&&!address.contains("smiles")&&
+                    !address.contains("avatar")&&!address.contains("logo")&&
+                    !address.contains("emoticon")){
+                    candidates.add(address);
+                }
+                if(candidates.size()>=8)break;
             }
         }
-        ReleaseMetadata result=new ReleaseMetadata(image);
+        ReleaseMetadata result=new ReleaseMetadata(new ArrayList<>(candidates));
 
         for(String[] f:new String[][]{
             {"Год","Год производства|Год выпуска"},
