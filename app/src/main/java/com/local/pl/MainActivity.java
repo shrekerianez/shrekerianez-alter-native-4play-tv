@@ -151,7 +151,7 @@ public class MainActivity extends Activity {
         grid.setColumnCount(cols);
         holder.addView(grid,new LinearLayout.LayoutParams(-1,-2));
         for(String[] item:entries){
-            Button tile=button("▶  "+item[1],()->open(SITE+"viewforum.php?f="+item[0],item[1],true));
+            Button tile=button("▶  "+item[1],()->open(withSort(SITE+"tracker.php?f%5B%5D="+item[0]+"&nm="),item[1],true));
             GridLayout.LayoutParams lp=new GridLayout.LayoutParams();
             lp.width=dp(cellDp);lp.height=dp(78);
             lp.setMargins(0,0,dp(12),dp(12));
@@ -164,7 +164,6 @@ public class MainActivity extends Activity {
         Entry(String t,String u){this(t,u,-1,-1);}
         Entry(String t,String u,int s,int l){title=t;url=u;seeds=s;leeches=l;}
         String peers(){
-            if(seeds<0&&leeches<0)return "";
             return "Сиды: "+(seeds<0?"—":seeds)+"    Личеры: "+(leeches<0?"—":leeches);
         }
     }
@@ -217,6 +216,61 @@ public class MainActivity extends Activity {
             }catch(Exception ignored){}
             finally{posterRequests.remove(e.url);}
         });
+    }
+    private String sortMode(){return prefs.getString("torrent_sort","seeds_desc");}
+    private String sortLabel(){
+        switch(sortMode()){
+            case "seeds_asc":return "Сиды ↑";
+            case "title_asc":return "Название А–Я";
+            case "newest":return "Сначала новые";
+            default:return "Сиды ↓";
+        }
+    }
+    private String withSort(String address){
+        if(!address.contains("/tracker.php"))return address;
+        Uri original=Uri.parse(address);
+        Uri.Builder builder=original.buildUpon().clearQuery();
+        for(String key:original.getQueryParameterNames()){
+            if(key.equals("o")||key.equals("s"))continue;
+            for(String value:original.getQueryParameters(key))builder.appendQueryParameter(key,value);
+        }
+        String order="10",direction="2";
+        switch(sortMode()){
+            case "seeds_asc":direction="1";break;
+            case "title_asc":order="2";direction="1";break;
+            case "newest":order="1";direction="2";break;
+        }
+        builder.appendQueryParameter("o",order);
+        builder.appendQueryParameter("s",direction);
+        return builder.build().toString();
+    }
+    private void chooseSort(String address,String title){
+        final String[] values={"seeds_desc","seeds_asc","newest","title_asc"};
+        final String[] names={"Больше сидов сначала","Меньше сидов сначала","Сначала новые","Название А–Я"};
+        int current=0;
+        for(int i=0;i<values.length;i++)if(values[i].equals(sortMode()))current=i;
+        new AlertDialog.Builder(this).setTitle("Сортировка раздач")
+            .setSingleChoiceItems(names,current,(dialog,i)->{
+                prefs.edit().putString("torrent_sort",values[i]).apply();
+                dialog.dismiss();
+                open(withSort(address),title,false);
+            }).setNegativeButton("Отмена",null).show();
+    }
+    private void sortLocal(List<Entry> topics){
+        switch(sortMode()){
+            case "seeds_asc":topics.sort((a,b)->{
+                if(a.seeds<0)return 1;
+                if(b.seeds<0)return -1;
+                return Integer.compare(a.seeds,b.seeds);
+            });break;
+            case "title_asc":topics.sort((a,b)->a.title.compareToIgnoreCase(b.title));break;
+            case "seeds_desc":topics.sort((a,b)->{
+                if(a.seeds<0)return 1;
+                if(b.seeds<0)return -1;
+                return Integer.compare(b.seeds,a.seeds);
+            });break;
+            default:break;
+        }
     }
     private void open(String url,String title,boolean push){
         if(!safeSite(url)){toast("Недопустимая ссылка");return;}
@@ -371,7 +425,7 @@ public class MainActivity extends Activity {
         b.addView(button("Найти",()->{
             String q=input.getText().toString().trim();
             if(q.isEmpty())return;
-            try{open(SITE+"tracker.php?nm="+URLEncoder.encode(q,"UTF-8"),"Поиск: "+q,false);}
+            try{open(withSort(SITE+"tracker.php?nm="+URLEncoder.encode(q,"UTF-8")),"Поиск: "+q,false);}
             catch(Exception e){toast(e.getMessage());}
         }));
         input.requestFocus();
