@@ -276,70 +276,62 @@ public class MainActivity extends Activity {
         final int ticket=++request;
         shell("Релиз");LinearLayout b=body();
         section(b,e.title);
-        note(b,"Воспроизведение через TorrServer. На этой приставке адрес по умолчанию 127.0.0.1:8090. Для получения .torrent может потребоваться вход на официальный сайт.");
+        if(!e.peers().isEmpty())note(b,"На трекере: "+e.peers());
         LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);
         b.addView(info);
-        note(info,"Читаем описание и характеристики с PornoLab…");
+        note(info,"Читаем описание и обложку PornoLab…");
         b.addView(button("▶  Смотреть через TorrServer",()->startTorrent(e)));
+        b.addView(button("Проверить статистику загрузки",()->showStats()));
         b.addView(button("Открыть на PornoLab",()->web(e.url)));
-        b.addView(button("Настроить TorrServer",()->settings()));
         b.addView(button("Назад к разделу",()->open(pageUrl,pageTitle,false)));
         io.execute(()->{
             try{
-                ReleaseMetadata m=ReleaseMetadata.from(getDocument(e.url));
+                Document doc=getDocument(e.url);
+                ReleaseMetadata metadata=ReleaseMetadata.from(doc);
+                int seeds=parseCount(doc,"span.seed b, .seedmed b");
+                int leeches=parseCount(doc,"span.leech b, .leechmed b");
                 ui.post(()->{
                     if(request!=ticket||browsing)return;
                     info.removeAllViews();
-                    if(m.fields.isEmpty()){
-                        note(info,"Структурированные данные пока не найдены. Полное описание доступно на странице раздачи.");
+                    if(seeds>=0||leeches>=0){
+                        note(info,"Сиды: "+(seeds<0?"—":seeds)+"    Личеры: "+(leeches<0?"—":leeches));
+                    }
+                    if(!metadata.imageUrls.isEmpty())loadCover(info,metadata.imageUrls,e.url,ticket);
+                    if(metadata.fields.isEmpty()){
+                        note(info,"Подробная информация из оформления раздачи не найдена.");
                     }else{
                         section(info,"Информация из раздачи");
-                        for(Map.Entry<String,String> field:m.fields.entrySet()){
+                        for(Map.Entry<String,String> field:metadata.fields.entrySet()){
                             TextView label=text(field.getKey()+":  "+field.getValue(),15,WHITE,false);
                             label.setPadding(0,dp(6),0,dp(6));info.addView(label);
                         }
                     }
-                    if(!m.imageUrl.isEmpty())loadCover(info,m.imageUrl,ticket);
                 });
             }catch(Exception ex){ui.post(()->{
-                if(request==ticket&&!browsing){info.removeAllViews();note(info,"Не удалось прочитать описание: "+ex.getMessage());}
+                if(request==ticket&&!browsing){
+                    info.removeAllViews();note(info,"Ошибка чтения страницы: "+ex.getMessage());
+                }
             });}
         });
     }
-    private void loadCover(LinearLayout holder,String imageUrl,int ticket){
+    private void loadCover(LinearLayout holder,List<String> urls,String topic,int ticket){
+        Bitmap cached=posterCache.get(topic);
+        if(cached!=null){
+            ImageView pic=new ImageView(this);pic.setImageBitmap(cached);
+            pic.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            holder.addView(pic,0,new LinearLayout.LayoutParams(dp(250),dp(300)));
+            return;
+        }
         io.execute(()->{
-            try{
-                URL u=new URL(imageUrl);
-                if(!u.getProtocol().equalsIgnoreCase("https"))return;
-                String host=u.getHost().toLowerCase(Locale.ROOT);
-                if(host.equals("localhost")||host.equals("127.0.0.1")||host.endsWith(".local"))return;
-                HttpURLConnection connection=(HttpURLConnection)u.openConnection();
-                connection.setInstanceFollowRedirects(false);
-                connection.setConnectTimeout(5500);connection.setReadTimeout(7000);
-                try{
-                    if(connection.getResponseCode()!=200||connection.getContentLengthLong()>4000000)return;
-                    String type=connection.getContentType();
-                    if(type==null||!type.toLowerCase(Locale.ROOT).startsWith("image/"))return;
-                    byte[] bytes;
-                    try(InputStream stream=connection.getInputStream();
-                        ByteArrayOutputStream out=new ByteArrayOutputStream()){
-                        byte[] buffer=new byte[4096];int n;
-                        while((n=stream.read(buffer))!=-1){
-                            out.write(buffer,0,n);
-                            if(out.size()>4000000)return;
-                        }
-                        bytes=out.toByteArray();
-                    }
-                    Bitmap bm=BitmapFactory.decodeByteArray(bytes,0,bytes.length);
-                    if(bm==null)return;
-                    ui.post(()->{
-                        if(request!=ticket||browsing)return;
-                        ImageView cover=new ImageView(this);
-                        cover.setImageBitmap(bm);cover.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                        holder.addView(cover,new LinearLayout.LayoutParams(dp(265),dp(310)));
-                    });
-                }finally{connection.disconnect();}
-            }catch(Exception ignored){}
+            Bitmap bm=CoverArt.fetch(this,urls);
+            if(bm==null)return;
+            posterCache.put(topic,bm);
+            ui.post(()->{
+                if(request!=ticket||browsing)return;
+                ImageView cover=new ImageView(this);cover.setImageBitmap(bm);
+                cover.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                holder.addView(cover,0,new LinearLayout.LayoutParams(dp(250),dp(300)));
+            });
         });
     }
     private void startTorrent(Entry e){
@@ -366,7 +358,8 @@ public class MainActivity extends Activity {
         String[] names=new String[torrent.files.size()];
         for(int i=0;i<names.length;i++)names[i]=torrent.files.get(i).name;
         new AlertDialog.Builder(this).setTitle("Выбери видео").setItems(names,(d,i)->{
-            PlaybackChooser.play(this,prefs,bridge.playUrl(torrent.hash,torrent.files.get(i).id),names[i]);
+            prefs.edit().putString("last_torrent_hash",torrent.hash).apply();
+            PlaybackChooser.play(this,prefs,bridge.playUrl(torrent.hash,torrent.files.get(i).id),names[i],torrent.hash,prefs.getString("torrserver","127.0.0.1:8090"));
         }).setNegativeButton("Отмена",null).show();
     }
     private void search(){
@@ -405,11 +398,34 @@ public class MainActivity extends Activity {
                 });
             }catch(Exception e){toast(e.getMessage());}
         }));
+        b.addView(button("Статистика последней загрузки",()->showStats()));
         section(b,"Видеоплеер");
         b.addView(button("Выбран: "+PlaybackChooser.label(prefs),()->PlaybackChooser.configure(this,prefs,()->settings())));
         section(b,"Учётная запись PornoLab");
         b.addView(button("Вход на сайт",()->web(SITE+"login.php")));
         b.addView(button("Вернуться в каталог",()->catalog()));
+    }
+    private void showStats(){
+        String hash=prefs.getString("last_torrent_hash","");
+        if(hash.isEmpty()){
+            new AlertDialog.Builder(this).setTitle("Статистика загрузки")
+                .setMessage("Сначала выбери видео в PL, чтобы появилась статистика торрента.")
+                .setPositiveButton("OK",null).show();
+            return;
+        }
+        toast("Получаем данные TorrServer…");
+        String server=prefs.getString("torrserver","127.0.0.1:8090");
+        io.execute(()->{
+            String message;
+            try{message=TorrentStats.full(new TorrBridge(server).status(hash));}
+            catch(Exception ex){message="Статистика недоступна: "+ex.getMessage();}
+            String result=message;
+            ui.post(()->new AlertDialog.Builder(this)
+                .setTitle("Текущая загрузка · TorrServer")
+                .setMessage(result)
+                .setPositiveButton("Обновить",(d,w)->showStats())
+                .setNegativeButton("Закрыть",null).show());
+        });
     }
     private Document getDocument(String url)throws Exception{
         if(!safeSite(url))throw new IOException("Недопустимый адрес");
