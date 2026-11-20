@@ -40,26 +40,28 @@ public final class PlaybackChooser {
             .show();
     }
 
-    public static void play(Activity a,SharedPreferences prefs,String url,String title){
+    public static void play(Activity a,SharedPreferences prefs,String url,String title,String hash,String server){
         String v=prefs.getString(KEY,"internal");
         if("external".equals(v)){external(a,url);return;}
         if("ask".equals(v)){
             new AlertDialog.Builder(a).setTitle("Где открыть видео?")
                 .setItems(new String[]{"Встроенный плеер PL","Другой установленный плеер"},
                     (d,which)->{
-                        if(which==0)internal(a,url,title);
+                        if(which==0)internal(a,url,title,hash,server);
                         else external(a,url);
                     })
                 .setNegativeButton("Отмена",null).show();
             return;
         }
-        internal(a,url,title);
+        internal(a,url,title,hash,server);
     }
 
-    private static void internal(Activity a,String url,String title){
+    private static void internal(Activity a,String url,String title,String hash,String server){
         Intent intent=new Intent(a,PlayerActivity.class);
         intent.putExtra("url",url);
         intent.putExtra("title",title);
+        intent.putExtra("torrent_hash",hash);
+        intent.putExtra("torrserver",server);
         a.startActivity(intent);
     }
 
