@@ -163,6 +163,13 @@ public final class LocalTorrentEngine {
             out.flush();
             if(head)return;
             byte[] buffer=new byte[32768];
+            // Torrents create the selected file asynchronously. Wait instead
+            // of returning a successful 206 response with an empty body.
+            long createTimeout=System.currentTimeMillis()+90000;
+            while(!item.file.exists() && item==current && System.currentTimeMillis()<createTimeout){
+                Thread.sleep(200);
+            }
+            if(!item.file.exists())return;
             try(RandomAccessFile input=new RandomAccessFile(item.file,"r")){
                 long at=first;
                 while(at<=last && item==current){
