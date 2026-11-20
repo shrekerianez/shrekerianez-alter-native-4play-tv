@@ -291,26 +291,50 @@ public class MainActivity extends Activity {
                     if(seen.add("f"+id.group(1)))folders.add(new Entry(name,link));
                     if(folders.size()==45)break;
                 }
-                for(Element a:doc.select("a[href*=viewtopic.php]")){
-                    String link=a.absUrl("href"),name=a.text().trim();
-                    Matcher id=Pattern.compile("[?&]t=(\\d+)").matcher(link);
-                    if(!id.find()||name.length()<7||name.length()>260||!safeSite(link))continue;
-                    if(seen.add("t"+id.group(1))){
-                        Element tr=a.closest("tr");
-                        int seeds=parseCount(tr,".seedmed b, .seedmed, td.seedmed, .seed b");
-                        int leeches=parseCount(tr,".leechmed b, .leechmed, td.leechmed, .leech b");
-                        topics.add(new Entry(name,link,seeds,leeches));
+                org.jsoup.select.Elements rows=doc.select("table#tor-tbl > tbody > tr:has(a.tLink)");
+                if(!rows.isEmpty()){
+                    for(Element row:rows){
+                        Element a=row.selectFirst("a.tLink");
+                        if(a==null)continue;
+                        String link=a.absUrl("href"),name=a.text().trim();
+                        Matcher id=Pattern.compile("[?&]t=(\\d+)").matcher(link);
+                        if(!id.find()||name.length()<5||!safeSite(link))continue;
+                        if(seen.add("t"+id.group(1))){
+                            int seeds=parseCount(row,"td.seedmed > b, td.seedmed");
+                            int leeches=parseCount(row,"td.leechmed > b, td.leechmed");
+                            topics.add(new Entry(name,link,seeds,leeches));
+                        }
+                        if(topics.size()>=65)break;
                     }
-                    if(topics.size()==65)break;
+                }else{
+                    for(Element a:doc.select("a[href*=viewtopic.php]")){
+                        String link=a.absUrl("href"),name=a.text().trim();
+                        Matcher id=Pattern.compile("[?&]t=(\\d+)").matcher(link);
+                        if(!id.find()||name.length()<7||name.length()>260||!safeSite(link))continue;
+                        if(seen.add("t"+id.group(1))){
+                            Element row=a.closest("tr");
+                            int seeds=parseCount(row,"td.seedmed > b, td.seedmed, .seed b");
+                            int leeches=parseCount(row,"td.leechmed > b, td.leechmed, .leech b");
+                            topics.add(new Entry(name,link,seeds,leeches));
+                        }
+                        if(topics.size()>=65)break;
+                    }
                 }
+                if(rows.isEmpty())sortLocal(topics);
                 ui.post(()->{
                     if(ticket!=request||browsing)return;
                     shell(title);LinearLayout view=body();
                     if(!folders.isEmpty()){section(view,"Подразделы");
                         for(Entry e:folders)view.addView(button("▣  "+e.title,()->open(e.url,e.title,true)));}
-                    if(!topics.isEmpty()){section(view,"Раздачи");
+                    if(!topics.isEmpty()){
+                        section(view,"Раздачи · "+topics.size()+" на странице");
+                        view.addView(button("⇅  Сортировка: "+sortLabel(),()->chooseSort(url,title)));
+                        note(view,url.contains("/tracker.php")
+                            ?"Результаты отсортированы самим трекером. Сиды и личеры указаны для каждой раздачи."
+                            :"Сортировка применяется к загруженной странице форума.");
                         for(int i=0;i<topics.size();i++)
-                            topicRow(view,topics.get(i),ticket,i<6);}
+                            topicRow(view,topics.get(i),ticket,i<6);
+                    }
                     if(folders.isEmpty()&&topics.isEmpty()){
                         note(view,"Список пуст. Возможно, требуется вход на сайт или формат страницы изменился.");
                         view.addView(button("Открыть на сайте",()->web(url)));
