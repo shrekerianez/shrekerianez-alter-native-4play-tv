@@ -137,13 +137,18 @@ public class MainActivity extends Activity {
         });
     }
     private void categoryTiles(LinearLayout holder,String[][] entries){
+        int screenDp=(int)(getResources().getDisplayMetrics().widthPixels/
+            getResources().getDisplayMetrics().density);
+        int availableDp=Math.max(180,screenDp-205-22-20);
+        int cols=availableDp>=430?2:1;
+        int cellDp=Math.max(155,(availableDp/cols)-16);
         GridLayout grid=new GridLayout(this);
-        grid.setColumnCount(2);
+        grid.setColumnCount(cols);
         holder.addView(grid,new LinearLayout.LayoutParams(-1,-2));
         for(String[] item:entries){
             Button tile=button("▶  "+item[1],()->open(SITE+"viewforum.php?f="+item[0],item[1],true));
             GridLayout.LayoutParams lp=new GridLayout.LayoutParams();
-            lp.width=dp(230);lp.height=dp(78);
+            lp.width=dp(cellDp);lp.height=dp(78);
             lp.setMargins(0,0,dp(12),dp(12));
             tile.setLayoutParams(lp);
             grid.addView(tile,lp);
