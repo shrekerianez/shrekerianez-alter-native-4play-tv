@@ -4,6 +4,8 @@ import android.app.*;
 import android.os.*;
 import android.content.*;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -91,6 +93,7 @@ public class MainActivity extends Activity {
         scroll.addView(list);menu.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         menu.addView(button("Вход на сайт",()->web(SITE+"login.php")));
         menu.addView(button("TorrServer · настройки",()->settings()));
+        menu.addView(button("Видеоплеер",()->PlaybackChooser.configure(this,prefs,()->settings())));
         TextView heading=text(title,27,WHITE,true);heading.setSingleLine(true);
         heading.setEllipsize(TextUtils.TruncateAt.END);heading.setPadding(0,0,0,dp(13));
         main.addView(heading);
@@ -169,13 +172,74 @@ public class MainActivity extends Activity {
         TextView t=text(text,21,WHITE,true);t.setPadding(0,dp(13),0,dp(10));box.addView(t);
     }
     private void release(Entry e){
-        request++;shell("Релиз");LinearLayout b=body();
+        final int ticket=++request;
+        shell("Релиз");LinearLayout b=body();
         section(b,e.title);
         note(b,"Воспроизведение через TorrServer. На этой приставке адрес по умолчанию 127.0.0.1:8090. Для получения .torrent может потребоваться вход на официальный сайт.");
+        LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);
+        b.addView(info);
+        note(info,"Читаем описание и характеристики с PornoLab…");
         b.addView(button("▶  Смотреть через TorrServer",()->startTorrent(e)));
         b.addView(button("Открыть на PornoLab",()->web(e.url)));
         b.addView(button("Настроить TorrServer",()->settings()));
         b.addView(button("Назад к разделу",()->open(pageUrl,pageTitle,false)));
+        io.execute(()->{
+            try{
+                ReleaseMetadata m=ReleaseMetadata.from(getDocument(e.url));
+                ui.post(()->{
+                    if(request!=ticket||browsing)return;
+                    info.removeAllViews();
+                    if(m.fields.isEmpty()){
+                        note(info,"Структурированные данные пока не найдены. Полное описание доступно на странице раздачи.");
+                    }else{
+                        section(info,"Информация из раздачи");
+                        for(Map.Entry<String,String> field:m.fields.entrySet()){
+                            TextView label=text(field.getKey()+":  "+field.getValue(),15,WHITE,false);
+                            label.setPadding(0,dp(6),0,dp(6));info.addView(label);
+                        }
+                    }
+                    if(!m.imageUrl.isEmpty())loadCover(info,m.imageUrl,ticket);
+                });
+            }catch(Exception ex){ui.post(()->{
+                if(request==ticket&&!browsing){info.removeAllViews();note(info,"Не удалось прочитать описание: "+ex.getMessage());}
+            });}
+        });
+    }
+    private void loadCover(LinearLayout holder,String imageUrl,int ticket){
+        io.execute(()->{
+            try{
+                URL u=new URL(imageUrl);
+                if(!u.getProtocol().equalsIgnoreCase("https"))return;
+                String host=u.getHost().toLowerCase(Locale.ROOT);
+                if(host.equals("localhost")||host.equals("127.0.0.1")||host.endsWith(".local"))return;
+                HttpURLConnection connection=(HttpURLConnection)u.openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(5500);connection.setReadTimeout(7000);
+                try{
+                    if(connection.getResponseCode()!=200||connection.getContentLengthLong()>4000000)return;
+                    String type=connection.getContentType();
+                    if(type==null||!type.toLowerCase(Locale.ROOT).startsWith("image/"))return;
+                    byte[] bytes;
+                    try(InputStream stream=connection.getInputStream();
+                        ByteArrayOutputStream out=new ByteArrayOutputStream()){
+                        byte[] buffer=new byte[4096];int n;
+                        while((n=stream.read(buffer))!=-1){
+                            out.write(buffer,0,n);
+                            if(out.size()>4000000)return;
+                        }
+                        bytes=out.toByteArray();
+                    }
+                    Bitmap bm=BitmapFactory.decodeByteArray(bytes,0,bytes.length);
+                    if(bm==null)return;
+                    ui.post(()->{
+                        if(request!=ticket||browsing)return;
+                        ImageView cover=new ImageView(this);
+                        cover.setImageBitmap(bm);cover.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                        holder.addView(cover,new LinearLayout.LayoutParams(dp(265),dp(310)));
+                    });
+                }finally{connection.disconnect();}
+            }catch(Exception ignored){}
+        });
     }
     private void startTorrent(Entry e){
         final String host=prefs.getString("torrserver","127.0.0.1:8090");
@@ -201,9 +265,7 @@ public class MainActivity extends Activity {
         String[] names=new String[torrent.files.size()];
         for(int i=0;i<names.length;i++)names[i]=torrent.files.get(i).name;
         new AlertDialog.Builder(this).setTitle("Выбери видео").setItems(names,(d,i)->{
-            Intent intent=new Intent(this,PlayerActivity.class);
-            intent.putExtra("url",bridge.playUrl(torrent.hash,torrent.files.get(i).id));
-            intent.putExtra("title",names[i]);startActivity(intent);
+            PlaybackChooser.play(this,prefs,bridge.playUrl(torrent.hash,torrent.files.get(i).id),names[i]);
         }).setNegativeButton("Отмена",null).show();
     }
     private void search(){
@@ -241,6 +303,7 @@ public class MainActivity extends Activity {
                 });
             }catch(Exception e){toast(e.getMessage());}
         }));
+        b.addView(button("Плеер: "+PlaybackChooser.label(prefs),()->PlaybackChooser.configure(this,prefs,()->settings())));
         b.addView(button("Вход в PornoLab",()->web(SITE+"login.php")));
         b.addView(button("Вернуться в каталог",()->home()));
     }
