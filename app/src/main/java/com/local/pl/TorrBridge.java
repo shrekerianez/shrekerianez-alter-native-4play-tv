@@ -224,6 +224,14 @@ public class TorrBridge {
         }
         throw new IOException("Неожиданный ответ TorrServer");
     }
+    public JSONObject status(String hash)throws Exception{
+        if(hash==null||!hash.matches("[a-fA-F0-9]{40}"))
+            throw new IOException("Некорректный хеш торрента");
+        JSONObject request=new JSONObject();
+        request.put("action","get");
+        request.put("hash",hash);
+        return postJson(request);
+    }
     public String playUrl(String hash,int id){
         return base+"/stream/PL?link="+URLEncoder(hash)+"&index="+id+"&play";
     }
