@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs=getSharedPreferences("pl",MODE_PRIVATE);
-        CookieManager.getInstance().setAcceptCookie(true);
+        android.webkit.CookieManager.getInstance().setAcceptCookie(true);
         if(!prefs.getBoolean("adult",false)){
             new AlertDialog.Builder(this).setTitle("PL · 18+")
                 .setMessage("Приложение открывает материалы для взрослых. Подтвердите, что вам исполнилось 18 лет.")
@@ -249,7 +249,7 @@ public class MainActivity extends Activity {
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
         c.setConnectTimeout(13000);c.setReadTimeout(18000);
         c.setRequestProperty("User-Agent","Mozilla/5.0 (Android TV; PL)");
-        String cookie=CookieManager.getInstance().getCookie(SITE);
+        String cookie=android.webkit.CookieManager.getInstance().getCookie(SITE);
         if(cookie!=null)c.setRequestProperty("Cookie",cookie);
         try(InputStream s=c.getInputStream()){
             if(!safeSite(c.getURL().toString()))throw new IOException("Переадресация вне трекера");
@@ -272,12 +272,12 @@ public class MainActivity extends Activity {
         browser.getSettings().setDomStorageEnabled(true);
         browser.getSettings().setBuiltInZoomControls(true);
         browser.getSettings().setDisplayZoomControls(false);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(browser,false);
+        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(browser,false);
         browser.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){
                 return !safeSite(r.getUrl().toString());
             }
-            @Override public void onPageFinished(WebView v,String url){CookieManager.getInstance().flush();}
+            @Override public void onPageFinished(WebView v,String url){android.webkit.CookieManager.getInstance().flush();}
         });
         vertical.addView(browser,new LinearLayout.LayoutParams(-1,0,1));
         setContentView(vertical);browser.loadUrl(url);
