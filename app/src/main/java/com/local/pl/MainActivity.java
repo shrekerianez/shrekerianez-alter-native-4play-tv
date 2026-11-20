@@ -77,23 +77,19 @@ public class MainActivity extends Activity {
         root=new LinearLayout(this);root.setOrientation(LinearLayout.HORIZONTAL);root.setBackgroundColor(BG);
         menu=new LinearLayout(this);menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(12),dp(15),dp(10),dp(15));menu.setBackgroundColor(PANEL);
-        root.addView(menu,new LinearLayout.LayoutParams(dp(246),-1));
+        root.addView(menu,new LinearLayout.LayoutParams(dp(205),-1));
         main=new LinearLayout(this);main.setOrientation(LinearLayout.VERTICAL);
         main.setPadding(dp(22),dp(12),dp(20),dp(12));
         root.addView(main,new LinearLayout.LayoutParams(0,-1,1));
         setContentView(root);
-        TextView mark=text("▶ PL",30,WHITE,true);mark.setPadding(dp(6),0,0,dp(10));menu.addView(mark);
-        menu.addView(button("Главная",()->home()));
-        menu.addView(button("Поиск",()->search()));
-        ScrollView scroll=new ScrollView(this);LinearLayout list=new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        for(String[] g:groups){
-            list.addView(button(g[1],()->open(SITE+"viewforum.php?f="+g[0],g[1],true)));
-        }
-        scroll.addView(list);menu.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        menu.addView(button("Вход на сайт",()->web(SITE+"login.php")));
-        menu.addView(button("TorrServer · настройки",()->settings()));
-        menu.addView(button("Видеоплеер",()->PlaybackChooser.configure(this,prefs,()->settings())));
+        TextView mark=text("▶ PL",30,WHITE,true);
+        mark.setPadding(dp(6),0,0,dp(18));menu.addView(mark);
+        menu.addView(button("⌂  Главная",()->home()));
+        menu.addView(button("▦  Каталог",()->catalog()));
+        menu.addView(button("⌕  Поиск",()->search()));
+        View space=new View(this);
+        menu.addView(space,new LinearLayout.LayoutParams(-1,0,1));
+        menu.addView(button("⚙  Настройки",()->settings()));
         TextView heading=text(title,27,WHITE,true);heading.setSingleLine(true);
         heading.setEllipsize(TextUtils.TruncateAt.END);heading.setPadding(0,0,0,dp(13));
         main.addView(heading);
@@ -108,17 +104,50 @@ public class MainActivity extends Activity {
         TextView t=text(message,16,MUTED,false);t.setPadding(0,dp(12),0,dp(20));holder.addView(t);
     }
     private void home(){
-        request++;pageUrl="";pageTitle="Главная";backStack.clear();shell("Каталог PL");
+        request++;pageUrl="";pageTitle="Главная";backStack.clear();shell("Главная");
         LinearLayout b=body();
-        note(b,"Поиск напрямую на PornoLab, воспроизведение через TorrServer на этой приставке. Для закрытых раздач войди в аккаунт. Управление: стрелки, OK, Назад.");
-        GridLayout grid=new GridLayout(this);grid.setColumnCount(3);b.addView(grid);
-        for(String[] g:groups){
-            Button tile=button("▶  "+g[1],()->open(SITE+"viewforum.php?f="+g[0],g[1],true));
+        section(b,"Добро пожаловать в PL");
+        note(b,"Поиск по PornoLab, просмотр через TorrServer. Все разделы собраны в «Каталоге», а подключение и плеер — в «Настройках».");
+        b.addView(button("▦  Открыть каталог",()->catalog()));
+        b.addView(button("⌕  Найти раздачу",()->search()));
+        section(b,"Быстрый доступ");
+        categoryTiles(b,new String[][]{
+            {"1672","Зарубежные фильмы"},{"1674","Русское видео"},{"1677","Зарубежные ролики"}
+        });
+    }
+    private void catalog(){
+        request++;pageUrl="";pageTitle="Каталог";backStack.clear();shell("Каталог PornoLab");
+        LinearLayout b=body();
+        note(b,"Разделы сгруппированы по типу контента. Нажми OK, чтобы открыть подразделы и раздачи трекера.");
+        section(b,"Полнометражные фильмы");
+        categoryTiles(b,new String[][]{
+            {"1672","Зарубежные фильмы"},{"1717","DVD и HD"}
+        });
+        section(b,"Русское видео");
+        categoryTiles(b,new String[][]{
+            {"1674","Русские релизы"},{"1753","На русском языке"}
+        });
+        section(b,"Ролики и видео");
+        categoryTiles(b,new String[][]{
+            {"1677","Зарубежные ролики"},{"1800","Японское и китайское"}
+        });
+        section(b,"Другие направления");
+        categoryTiles(b,new String[][]{
+            {"1670","Эротическое видео"},{"11","Специальные тематики"},{"1688","Гей-видео"}
+        });
+    }
+    private void categoryTiles(LinearLayout holder,String[][] entries){
+        GridLayout grid=new GridLayout(this);
+        grid.setColumnCount(2);
+        holder.addView(grid,new LinearLayout.LayoutParams(-1,-2));
+        for(String[] item:entries){
+            Button tile=button("▶  "+item[1],()->open(SITE+"viewforum.php?f="+item[0],item[1],true));
             GridLayout.LayoutParams lp=new GridLayout.LayoutParams();
-            lp.width=dp(205);lp.height=dp(105);lp.setMargins(0,0,dp(12),dp(12));
+            lp.width=dp(230);lp.height=dp(78);
+            lp.setMargins(0,0,dp(12),dp(12));
+            tile.setLayoutParams(lp);
             grid.addView(tile,lp);
         }
-        if(grid.getChildCount()>0)grid.getChildAt(0).requestFocus();
     }
     private static class Entry{
         String title,url; Entry(String t,String u){title=t;url=u;}
@@ -283,7 +312,8 @@ public class MainActivity extends Activity {
         input.requestFocus();
     }
     private void settings(){
-        request++;shell("TorrServer");LinearLayout b=body();
+        request++;shell("Настройки");LinearLayout b=body();
+        section(b,"TorrServer");
         note(b,"Если TorrServe установлен прямо на Google TV Streamer, оставь 127.0.0.1:8090. Запусти сервер в TorrServe перед просмотром. Если сервер на другом устройстве, введи его локальный IP и порт.");
         EditText address=new EditText(this);address.setTextColor(WHITE);address.setTextSize(19);
         address.setSingleLine(true);address.setHint("192.168.1.100:8090");
@@ -303,9 +333,11 @@ public class MainActivity extends Activity {
                 });
             }catch(Exception e){toast(e.getMessage());}
         }));
-        b.addView(button("Плеер: "+PlaybackChooser.label(prefs),()->PlaybackChooser.configure(this,prefs,()->settings())));
-        b.addView(button("Вход в PornoLab",()->web(SITE+"login.php")));
-        b.addView(button("Вернуться в каталог",()->home()));
+        section(b,"Видеоплеер");
+        b.addView(button("Выбран: "+PlaybackChooser.label(prefs),()->PlaybackChooser.configure(this,prefs,()->settings())));
+        section(b,"Учётная запись PornoLab");
+        b.addView(button("Вход на сайт",()->web(SITE+"login.php")));
+        b.addView(button("Вернуться в каталог",()->catalog()));
     }
     private Document getDocument(String url)throws Exception{
         if(!safeSite(url))throw new IOException("Недопустимый адрес");
