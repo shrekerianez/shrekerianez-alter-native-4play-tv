@@ -107,6 +107,42 @@ public class TorrBridge {
         if(files.isEmpty())throw new IOException("TorrServer не получил список видеофайлов. Проверь сиды и работу сервера.");
         return new Torrent(hash,files);
     }
+    public Torrent fromRawTorrent(byte[] bytes,String title)throws Exception{
+        JSONObject reply=upload(bytes,title);
+        return awaitTorrent(reply);
+    }
+    public Torrent fromMagnetLink(String magnet,String title)throws Exception{
+        if(!magnet.startsWith("magnet:?"))throw new IOException("Неверная magnet-ссылка");
+        JSONObject req=new JSONObject();req.put("action","add");req.put("link",magnet);
+        req.put("title",title);req.put("save_to_db",true);
+        return awaitTorrent(postJson(req));
+    }
+    private Torrent awaitTorrent(JSONObject reply)throws Exception{
+        if(reply.has("error"))throw new IOException(reply.optString("error"));
+        String hash=reply.optString("hash");
+        if(hash.isEmpty())throw new IOException("Нет хеша от TorrServer");
+        ArrayList<FileEntry> files=new ArrayList<>();
+        for(int attempts=0;attempts<25;attempts++){
+            JSONObject req=new JSONObject();req.put("action","get");req.put("hash",hash);
+            JSONObject state=postJson(req);
+            JSONArray raw=state.optJSONArray("file_stats");
+            if(raw!=null&&raw.length()>0){
+                for(int i=0;i<raw.length();i++){
+                    JSONObject f=raw.optJSONObject(i);
+                    if(f==null)continue;
+                    String path=f.optString("path");
+                    String low=path.toLowerCase(Locale.ROOT);
+                    if(low.matches("(?s).*\\.(mp4|mkv|avi|mov|wmv|webm|mpeg|mpg|m2ts|ts|vob|flv)$"))
+                        files.add(new FileEntry(f.optInt("id",i+1),path));
+                }
+                break;
+            }
+            Thread.sleep(1000);
+        }
+        if(files.isEmpty())throw new IOException("Не удалось получить список видеофайлов от TorrServer");
+        return new Torrent(hash,files);
+    }
+
     private byte[] fetchTorrent(String address)throws Exception{
         URL u=new URL(address);
         if(!"https".equals(u.getProtocol())||
