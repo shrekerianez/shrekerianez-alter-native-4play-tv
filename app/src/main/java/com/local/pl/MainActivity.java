@@ -6,6 +6,7 @@ import android.content.*;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.util.LruCache;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -39,6 +40,10 @@ public class MainActivity extends Activity {
     private boolean browsing=false;
     private int request=0;
     private final ArrayDeque<String[]> backStack=new ArrayDeque<>();
+    private final LruCache<String,Bitmap> posterCache=new LruCache<String,Bitmap>(12*1024*1024){
+        @Override protected int sizeOf(String key,Bitmap cover){return cover.getByteCount();}
+    };
+    private final Set<String> posterRequests=Collections.synchronizedSet(new HashSet<>());
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -155,7 +160,63 @@ public class MainActivity extends Activity {
         }
     }
     private static class Entry{
-        String title,url; Entry(String t,String u){title=t;url=u;}
+        String title,url; final int seeds,leeches;
+        Entry(String t,String u){this(t,u,-1,-1);}
+        Entry(String t,String u,int s,int l){title=t;url=u;seeds=s;leeches=l;}
+        String peers(){
+            if(seeds<0&&leeches<0)return "";
+            return "Сиды: "+(seeds<0?"—":seeds)+"    Личеры: "+(leeches<0?"—":leeches);
+        }
+    }
+    private static int parseCount(Element row,String selector){
+        if(row==null)return -1;
+        Element el=row.selectFirst(selector);
+        if(el==null)return -1;
+        Matcher m=Pattern.compile("(\\d[\\d\\s]*)").matcher(el.text());
+        if(!m.find())return -1;
+        try{return Integer.parseInt(m.group(1).replaceAll("\\s",""));}
+        catch(Exception ex){return -1;}
+    }
+    private void topicRow(LinearLayout parent,Entry e,int ticket,boolean prefetch){
+        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView cover=new ImageView(this);
+        cover.setImageResource(android.R.drawable.ic_menu_gallery);
+        cover.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        cover.setBackgroundColor(0xff2c2c39);
+        LinearLayout.LayoutParams pic=new LinearLayout.LayoutParams(dp(90),dp(112));
+        pic.setMargins(0,0,dp(12),dp(12));row.addView(cover,pic);
+        String caption="▶  "+e.title+(e.peers().isEmpty()?"":"\n"+e.peers());
+        Button btn=button(caption,()->release(e));btn.setSingleLine(false);
+        btn.setMaxLines(4);btn.setTextSize(15);
+        btn.setOnFocusChangeListener((v,focused)->{
+            btn.setBackground(panel(focused?FOCUS:PANEL,focused));
+            if(focused)preview(e,cover,ticket);
+        });
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(112),1);
+        lp.bottomMargin=dp(12);row.addView(btn,lp);
+        parent.addView(row);
+        Bitmap saved=posterCache.get(e.url);
+        if(saved!=null)cover.setImageBitmap(saved);
+        else if(prefetch)preview(e,cover,ticket);
+    }
+    private void preview(Entry e,ImageView image,int ticket){
+        Bitmap saved=posterCache.get(e.url);
+        if(saved!=null){image.setImageBitmap(saved);return;}
+        if(!posterRequests.add(e.url))return;
+        io.execute(()->{
+            try{
+                ReleaseMetadata m=ReleaseMetadata.from(getDocument(e.url));
+                Bitmap bitmap=CoverArt.fetch(this,m.imageUrls);
+                if(bitmap!=null){
+                    posterCache.put(e.url,bitmap);
+                    ui.post(()->{
+                        if(ticket==request&&!browsing)image.setImageBitmap(bitmap);
+                    });
+                }
+            }catch(Exception ignored){}
+            finally{posterRequests.remove(e.url);}
+        });
     }
     private void open(String url,String title,boolean push){
         if(!safeSite(url)){toast("Недопустимая ссылка");return;}
@@ -180,7 +241,12 @@ public class MainActivity extends Activity {
                     String link=a.absUrl("href"),name=a.text().trim();
                     Matcher id=Pattern.compile("[?&]t=(\\d+)").matcher(link);
                     if(!id.find()||name.length()<7||name.length()>260||!safeSite(link))continue;
-                    if(seen.add("t"+id.group(1)))topics.add(new Entry(name,link));
+                    if(seen.add("t"+id.group(1))){
+                        Element tr=a.closest("tr");
+                        int seeds=parseCount(tr,".seedmed b, .seedmed, td.seedmed, .seed b");
+                        int leeches=parseCount(tr,".leechmed b, .leechmed, td.leechmed, .leech b");
+                        topics.add(new Entry(name,link,seeds,leeches));
+                    }
                     if(topics.size()==65)break;
                 }
                 ui.post(()->{
@@ -189,7 +255,8 @@ public class MainActivity extends Activity {
                     if(!folders.isEmpty()){section(view,"Подразделы");
                         for(Entry e:folders)view.addView(button("▣  "+e.title,()->open(e.url,e.title,true)));}
                     if(!topics.isEmpty()){section(view,"Раздачи");
-                        for(Entry e:topics)view.addView(button("▶  "+e.title,()->release(e)));}
+                        for(int i=0;i<topics.size();i++)
+                            topicRow(view,topics.get(i),ticket,i<6);}
                     if(folders.isEmpty()&&topics.isEmpty()){
                         note(view,"Список пуст. Возможно, требуется вход на сайт или формат страницы изменился.");
                         view.addView(button("Открыть на сайте",()->web(url)));
