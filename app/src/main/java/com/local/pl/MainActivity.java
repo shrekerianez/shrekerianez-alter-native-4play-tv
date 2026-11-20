@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
         }
         scroll.addView(list);menu.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         menu.addView(button("Вход на сайт",()->web(SITE+"login.php")));
-        menu.addView(button("TorrServer",()->settings()));
+        menu.addView(button("О приложении и кэше",()->settings()));
         TextView heading=text(title,27,WHITE,true);heading.setSingleLine(true);
         heading.setEllipsize(TextUtils.TruncateAt.END);heading.setPadding(0,0,0,dp(13));
         main.addView(heading);
@@ -107,7 +107,7 @@ public class MainActivity extends Activity {
     private void home(){
         request++;pageUrl="";pageTitle="Главная";backStack.clear();shell("Каталог PL");
         LinearLayout b=body();
-        note(b,"Видеокатегории PornoLab. Управляй стрелками, OK и Назад на пульте.");
+        note(b,"PL автономный: поиск и загрузка идут прямо с PornoLab, торрент воспроизводится на приставке. Для закрытых разделов войди в аккаунт.");
         GridLayout grid=new GridLayout(this);grid.setColumnCount(3);b.addView(grid);
         for(String[] g:groups){
             Button tile=button("▶  "+g[1],()->open(SITE+"viewforum.php?f="+g[0],g[1],true));
@@ -171,40 +171,83 @@ public class MainActivity extends Activity {
     private void release(Entry e){
         request++;shell("Релиз");LinearLayout b=body();
         section(b,e.title);
-        note(b,"Для воспроизведения нужен работающий TorrServer в локальной сети. Вход в трекер выполняется на официальном сайте.");
-        b.addView(button("▶  Смотреть через TorrServer",()->startTorrent(e)));
+        note(b,"Воспроизведение происходит на самой приставке. PL скачивает части торрент-файла в локальный кэш. Для получения .torrent может понадобиться вход.");
+        b.addView(button("▶  Смотреть в PL",()->startTorrent(e)));
         b.addView(button("Открыть на PornoLab",()->web(e.url)));
-        b.addView(button("Настроить TorrServer",()->settings()));
         b.addView(button("Назад к разделу",()->open(pageUrl,pageTitle,false)));
     }
     private void startTorrent(Entry e){
-        final String host=prefs.getString("torrserver","");
-        if(host.isEmpty()){toast("Сначала настрой адрес TorrServer");settings();return;}
-        new AlertDialog.Builder(this).setTitle("PL")
-            .setMessage("Передать торрент на ваш TorrServer и открыть поток?")
-            .setNegativeButton("Отмена",null)
-            .setPositiveButton("Продолжить",(d,w)->{
-                toast("Получаем торрент и список файлов…");
+        toast("Получаем .torrent с PornoLab…");
+        io.execute(()->{
+            try{
+                Document doc=getDocument(e.url);
+                String download="";
+                for(Element a:doc.select("a[href]")){
+                    String candidate=a.absUrl("href");
+                    if(safeSite(candidate)&&Uri.parse(candidate).getPath().endsWith("/dl.php")){
+                        download=candidate;break;
+                    }
+                }
+                if(download.isEmpty())throw new IOException("На странице нет ссылки на .torrent. Возможно, требуется авторизация на PornoLab.");
+                byte[] data=fetchTorrentFile(download);
+                LocalTorrentEngine engine=LocalTorrentEngine.get(this);
+                List<LocalTorrentEngine.VideoFile> files=engine.videos(data);
+                if(files.isEmpty())throw new IOException("В раздаче не найдено видеофайлов");
+                ui.post(()->selectFile(data,files,e.title));
+            }catch(Exception ex){ui.post(()->new AlertDialog.Builder(this)
+                .setTitle("Не удалось открыть раздачу")
+                .setMessage(ex.getMessage())
+                .setNegativeButton("Закрыть",null)
+                .setPositiveButton("Войти на сайт",(d,w)->web(SITE+"login.php")).show());}
+        });
+    }
+    private byte[] fetchTorrentFile(String address)throws Exception{
+        if(!safeSite(address)||!Uri.parse(address).getPath().endsWith("/dl.php"))
+            throw new IOException("Загрузка разрешена только с PornoLab");
+        HttpURLConnection c=(HttpURLConnection)new URL(address).openConnection();
+        c.setConnectTimeout(12000);c.setReadTimeout(25000);
+        c.setInstanceFollowRedirects(false);
+        c.setRequestProperty("User-Agent",WebSettings.getDefaultUserAgent(this));
+        c.setRequestProperty("Referer",SITE);
+        String cookie=android.webkit.CookieManager.getInstance().getCookie(SITE);
+        if(cookie!=null)c.setRequestProperty("Cookie",cookie);
+        try{
+            int code=c.getResponseCode();
+            if(code!=200)throw new IOException("PornoLab: ошибка скачивания торрента HTTP "+code);
+            try(InputStream in=c.getInputStream();ByteArrayOutputStream result=new ByteArrayOutputStream()){
+                byte[] buf=new byte[8192];int n;
+                while((n=in.read(buf))!=-1){
+                    result.write(buf,0,n);
+                    if(result.size()>12*1024*1024)throw new IOException("Размер .torrent превышает 12 МБ");
+                }
+                byte[] data=result.toByteArray();
+                if(data.length<20||data[0]!='d')
+                    throw new IOException("Сайт вернул страницу вместо .torrent. Проверь вход в PornoLab.");
+                return data;
+            }
+        }finally{c.disconnect();}
+    }
+    private void selectFile(byte[] data,List<LocalTorrentEngine.VideoFile> files,String title){
+        String[] names=new String[files.size()];
+        for(int i=0;i<names.length;i++)names[i]=files.get(i).name;
+        new AlertDialog.Builder(this).setTitle("Что будем смотреть?")
+            .setItems(names,(d,i)->{
+                toast("Подключаем встроенный торрент-движок. Буферизация зависит от сидов…");
                 io.execute(()->{
                     try{
-                        TorrBridge bridge=new TorrBridge(host);
-                        TorrBridge.Torrent torrent=bridge.fromTopic(getDocument(e.url),e.title);
-                        ui.post(()->selectFile(bridge,torrent));
-                    }catch(Exception ex){ui.post(()->new AlertDialog.Builder(this)
-                        .setTitle("Не удалось начать просмотр").setMessage(ex.getMessage())
+                        String url=LocalTorrentEngine.get(this).play(data,files.get(i).index);
+                        ui.post(()->{
+                            Intent intent=new Intent(this,PlayerActivity.class);
+                            intent.putExtra("url",url);
+                            intent.putExtra("title",names[i]);
+                            startActivity(intent);
+                        });
+                    }catch(Throwable t){ui.post(()->new AlertDialog.Builder(this)
+                        .setTitle("Не удалось начать воспроизведение").setMessage(String.valueOf(t.getMessage()))
                         .setPositiveButton("OK",null).show());}
                 });
-            }).show();
-    }
-    private void selectFile(TorrBridge bridge,TorrBridge.Torrent torrent){
-        if(torrent.files.isEmpty()){toast("В раздаче нет поддерживаемых видеофайлов");return;}
-        String[] names=new String[torrent.files.size()];
-        for(int i=0;i<names.length;i++)names[i]=torrent.files.get(i).name;
-        new AlertDialog.Builder(this).setTitle("Выбери видео").setItems(names,(d,i)->{
-            Intent intent=new Intent(this,PlayerActivity.class);
-            intent.putExtra("url",bridge.playUrl(torrent.hash,torrent.files.get(i).id));
-            intent.putExtra("title",names[i]);startActivity(intent);
-        }).setNegativeButton("Отмена",null).show();
+            })
+            .setNegativeButton("Отмена",null).show();
     }
     private void search(){
         request++;shell("Поиск по трекеру");LinearLayout b=body();
@@ -221,34 +264,23 @@ public class MainActivity extends Activity {
         input.requestFocus();
     }
     private void settings(){
-        request++;shell("TorrServer");LinearLayout b=body();
-        note(b,"Укажи IP и порт TorrServer в локальной сети, например 192.168.1.100:8090. Не открывай TorrServer в интернет без защиты.");
-        EditText address=new EditText(this);address.setTextColor(WHITE);address.setTextSize(19);
-        address.setSingleLine(true);address.setHint("192.168.1.100:8090");
-        address.setText(prefs.getString("torrserver",""));
-        b.addView(address,new LinearLayout.LayoutParams(-1,dp(65)));
-        b.addView(button("Сохранить и проверить",()->{
-            String host=address.getText().toString().trim();
-            try{
-                TorrBridge bridge=new TorrBridge(host);
-                prefs.edit().putString("torrserver",host).apply();
-                toast("Адрес сохранён. Проверяем соединение…");
-                io.execute(()->{
-                    try{bridge.test();ui.post(()->toast("TorrServer доступен"));}
-                    catch(Exception e){ui.post(()->new AlertDialog.Builder(this)
-                        .setTitle("Соединение не установлено").setMessage(e.getMessage())
-                        .setPositiveButton("OK",null).show());}
-                });
-            }catch(Exception e){toast(e.getMessage());}
-        }));
+        request++;shell("PL · Автономный режим");LinearLayout b=body();
+        File root=getExternalFilesDir(null);
+        note(b,"Jackett, NAS и TorrServer не нужны. Авторизация производится через официальный сайт PornoLab. Локальный торрент-движок скачивает части видео в память приставки.");
+        if(root!=null){
+            StatFs stat=new StatFs(root.getAbsolutePath());
+            long free=stat.getAvailableBytes()/1024/1024;
+            note(b,"Свободное место в памяти устройства: "+free+" МБ. Для больших видео может не хватить места.");
+        }
         b.addView(button("Вход в PornoLab",()->web(SITE+"login.php")));
-        b.addView(button("Вернуться в каталог",()->home()));
+        b.addView(button("Снова открыть каталог",()->home()));
     }
     private Document getDocument(String url)throws Exception{
         if(!safeSite(url))throw new IOException("Недопустимый адрес");
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
         c.setConnectTimeout(13000);c.setReadTimeout(18000);
-        c.setRequestProperty("User-Agent","Mozilla/5.0 (Android TV; PL)");
+        c.setInstanceFollowRedirects(false);
+        c.setRequestProperty("User-Agent",WebSettings.getDefaultUserAgent(this));
         String cookie=android.webkit.CookieManager.getInstance().getCookie(SITE);
         if(cookie!=null)c.setRequestProperty("Cookie",cookie);
         try(InputStream s=c.getInputStream()){
@@ -270,6 +302,7 @@ public class MainActivity extends Activity {
         browser=new WebView(this);
         browser.getSettings().setJavaScriptEnabled(true);
         browser.getSettings().setDomStorageEnabled(true);
+        browser.getSettings().setUserAgentString(WebSettings.getDefaultUserAgent(this));
         browser.getSettings().setBuiltInZoomControls(true);
         browser.getSettings().setDisplayZoomControls(false);
         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(browser,false);
